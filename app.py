@@ -3,10 +3,15 @@
 # Three tabs: Run Inspection | Dashboard | About
 # Called with: python app.py   -> http://localhost:7860
 
+import mock_mode  # REMOVE THIS LINE before deploying to HF Space
+
 import gradio as gr
 import plotly.graph_objects as go
 from pipeline import run_inspection
 from database import get_dashboard_stats
+
+from vllm_client import check_vllm_health
+
 
 CUSTOM_CSS = '''
 .header-container { background:linear-gradient(135deg,#1a1a2e,#0f3460);
@@ -67,6 +72,42 @@ def run_ui(media_file, site_name, supervisor_name, supervisor_email,
             notif.get('email_subject',''), notif.get('email_body',''),
             sample)
 
+
+#####MOCK MOCK
+
+def get_status_html() -> str:
+    h = check_vllm_health()
+    if h['healthy']:
+        return (
+            '<div style="background:#f0fff4;border:1px solid #9ae6b4;'
+            'border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.75rem;">'
+            '<strong style="color:#276749">AMD Cloud vLLM: Online</strong>'
+            f' &nbsp;|&nbsp; Vision: {"Loaded" if h["vision_loaded"] else "Missing"}'
+            f' &nbsp;|&nbsp; Report: {"Loaded" if h["report_loaded"] else "Missing"}'
+            f' &nbsp;|&nbsp; {h["vision_url"]}'
+            '</div>'
+        )
+    return (
+        '<div style="background:#fff5f5;border:1px solid #feb2b2;'
+        'border-radius:8px;padding:0.75rem 1rem;margin-bottom:0.75rem;">'
+        '<strong style="color:#c53030">AMD Cloud vLLM: Offline</strong>'
+        f' &nbsp;|&nbsp; {h["error"] or "Cannot connect"}'
+        '<br><small>Set VLLM_VISION_URL and VLLM_REPORT_URL in HF Space Secrets.</small>'
+        '</div>'
+    )
+
+#################################
+
+
+
+
+
+
+
+
+
+
+
 def build_ui():
     with gr.Blocks(title='ConstructSafe',css=CUSTOM_CSS,
                    theme=gr.themes.Soft(primary_hue='amber')) as demo:
@@ -74,6 +115,14 @@ def build_ui():
                 '<h1 class="header-title">ConstructSafe</h1>'
                 '<p class="header-subtitle">AI-Powered OSHA Safety Inspector | AMD MI300X</p>'
                 '</div>')
+        
+        # AMD Cloud live status bar — add right after the header HTML
+        status_bar = gr.HTML(value=get_status_html())
+        gr.Button('Refresh AMD Cloud Status', size='sm').click(
+            fn=get_status_html, inputs=[], outputs=[status_bar]
+        )
+
+
         with gr.Tabs():
             with gr.TabItem('Run Inspection'):
                 with gr.Row():
@@ -85,27 +134,85 @@ def build_ui():
                         sup_e   = gr.Textbox(label='Supervisor Email')
                         btn     = gr.Button('Run Safety Inspection',
                                             variant='primary', elem_id='inspect-btn')
-                        gr.Examples([['test_videos/no_hardhat.mp4','Site A','John M.','j@x.com'],
-                                     ['test_videos/fall_risk.mp4', 'Site B','Sara C.','s@x.com']],
-                                    inputs=[media,site,sup_n,sup_e])
+                        # gr.Examples([['test_videos/no_hardhat.mp4','Site A','John M.','j@x.com'],
+                        #              ['test_videos/fall_risk.mp4', 'Site B','Sara C.','s@x.com']],
+                        #             inputs=[media,site,sup_n,sup_e])
                     with gr.Column(scale=2):
                         with gr.Tabs():
                             with gr.TabItem('Violations'):
                                 viol_out  = gr.HTML()
                                 frame_out = gr.Image(label='Sample Frame',height=240)
                             with gr.TabItem('OSHA Report'):
-                                rep_out   = gr.Textbox(lines=25,show_copy_button=True)
+                                rep_out   = gr.Textbox(lines=25)#,show_copy_button=True)
                             with gr.TabItem('Supervisor Email'):
-                                subj_out  = gr.Textbox(label='Subject',show_copy_button=True)
-                                body_out  = gr.Textbox(lines=18,show_copy_button=True)
+                                subj_out  = gr.Textbox(label='Subject')#,show_copy_button=True)
+                                body_out  = gr.Textbox(lines=18)#,show_copy_button=True)
                 btn.click(run_ui,[media,site,sup_n,sup_e],
                           [viol_out,rep_out,subj_out,body_out,frame_out],show_progress=True)
             with gr.TabItem('Dashboard'):
                 stats = get_dashboard_stats()
-                gr.Metric('Total Inspections',stats['total_inspections'])
-                gr.Metric('Total Violations',stats['total_violations'])
-                gr.Metric('High/Critical Events',stats['high_risk_inspections'])
+                #gr.Metric('Total Inspections',stats['total_inspections'])
+                
+                gr.Textbox(
+                value=str(stats['total_inspections']),
+                label='Total Inspections'
+            )
+               # gr.Metric('Total Violations',stats['total_violations'])
+                gr.Textbox(value=str(stats['total_violations']),
+           label='Total Violations')
+                #gr.Metric('High/Critical Events',stats['high_risk_inspections'])
+
+                gr.Textbox(value=str(stats.get('High/Critical Events', 0)),
+           label='high_risk_inspections')
     return demo
+
+
+
+
+
+
+
+
+
+# def build_ui():
+#     with gr.Blocks(title='ConstructSafe',css=CUSTOM_CSS,
+#                    theme=gr.themes.Soft(primary_hue='amber')) as demo:
+#         gr.HTML('<div class="header-container">'
+#                 '<h1 class="header-title">ConstructSafe</h1>'
+#                 '<p class="header-subtitle">AI-Powered OSHA Safety Inspector | AMD MI300X</p>'
+#                 '</div>')
+#         with gr.Tabs():
+#             with gr.TabItem('Run Inspection'):
+#                 with gr.Row():
+#                     with gr.Column(scale=1):
+#                         media   = gr.File(label='Video or Image',
+#                                           file_types=['.mp4','.mov','.avi','.jpg','.png'])
+#                         site    = gr.Textbox(label='Site Name')
+#                         sup_n   = gr.Textbox(label='Supervisor Name')
+#                         sup_e   = gr.Textbox(label='Supervisor Email')
+#                         btn     = gr.Button('Run Safety Inspection',
+#                                             variant='primary', elem_id='inspect-btn')
+#                         gr.Examples([['test_videos/no_hardhat.mp4','Site A','John M.','j@x.com'],
+#                                      ['test_videos/fall_risk.mp4', 'Site B','Sara C.','s@x.com']],
+#                                     inputs=[media,site,sup_n,sup_e])
+#                     with gr.Column(scale=2):
+#                         with gr.Tabs():
+#                             with gr.TabItem('Violations'):
+#                                 viol_out  = gr.HTML()
+#                                 frame_out = gr.Image(label='Sample Frame',height=240)
+#                             with gr.TabItem('OSHA Report'):
+#                                 rep_out   = gr.Textbox(lines=25,show_copy_button=True)
+#                             with gr.TabItem('Supervisor Email'):
+#                                 subj_out  = gr.Textbox(label='Subject',show_copy_button=True)
+#                                 body_out  = gr.Textbox(lines=18,show_copy_button=True)
+#                 btn.click(run_ui,[media,site,sup_n,sup_e],
+#                           [viol_out,rep_out,subj_out,body_out,frame_out],show_progress=True)
+#             with gr.TabItem('Dashboard'):
+#                 stats = get_dashboard_stats()
+#                 gr.Metric('Total Inspections',stats['total_inspections'])
+#                 gr.Metric('Total Violations',stats['total_violations'])
+#                 gr.Metric('High/Critical Events',stats['high_risk_inspections'])
+#     return demo
 
 if __name__ == '__main__':
     build_ui().launch(server_name='0.0.0.0', server_port=7860)
